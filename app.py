@@ -1,26 +1,40 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timezone, timedelta
-WIB = timezone(timedelta(hours=7))
-waktu_wib = datetime.now(WIB).strftime("%Y-%m-%d %H:%M:%S")
 import os
 
 st.set_page_config(page_title="NNA Network Monitoring", layout="wide")
 
 DATA_FILE = "data_monitoring.csv"
 
+COLUMNS = [
+    "Waktu Cek", "Site", "Link PTP", "Latency (ms)",
+    "Packet Loss (%)", "Status Link", "Kondisi",
+    "Tindakan", "PIC", "Info ke NNA"
+]
+
 # =========================
-# LOAD DATA
+# LOAD DATA AMAN
 # =========================
 def load_data():
-    if os.path.exists(DATA_FILE):
-        return pd.read_csv(DATA_FILE, parse_dates=["Waktu Cek"])
-    else:
-        return pd.DataFrame(columns=[
-            "Waktu Cek", "Site", "Link PTP", "Latency (ms)",
-            "Packet Loss (%)", "Status Link", "Kondisi",
-            "Tindakan", "PIC", "Info ke NNA"
-        ])
+    if not os.path.exists(DATA_FILE):
+        return pd.DataFrame(columns=COLUMNS)
+
+    if os.path.getsize(DATA_FILE) == 0:
+        return pd.DataFrame(columns=COLUMNS)
+
+    try:
+        df = pd.read_csv(DATA_FILE)
+
+        if not set(COLUMNS).issubset(df.columns):
+            return pd.DataFrame(columns=COLUMNS)
+
+        df["Waktu Cek"] = pd.to_datetime(df["Waktu Cek"], errors="coerce")
+        return df
+
+    except Exception:
+        st.warning("File data rusak/kosong. Sistem membuat data baru.")
+        return pd.DataFrame(columns=COLUMNS)
 
 def save_data(df):
     df.to_csv(DATA_FILE, index=False)
@@ -28,10 +42,11 @@ def save_data(df):
 df = load_data()
 
 # =========================
-# FUNGSI PENENTUAN KONDISI
+# LOGIC STATUS KONDISI
 # =========================
 def get_kondisi(latency, loss, status_link):
-    if status_link.lower() == "down":
+    status_link = status_link.lower()
+    if status_link == "down":
         return "DOWN"
     if latency > 20 or loss > 1:
         return "MAJOR"
@@ -43,10 +58,10 @@ def get_kondisi(latency, loss, status_link):
 # HEADER
 # =========================
 st.title("📡 Dashboard Monitoring Network NNA")
-st.caption("Monitoring Latency PTP tiap 2 jam oleh Tim NOC")
+st.caption("Monitoring Latency PTP Tiap 2 Jam oleh Tim NOC (WIB)")
 
 # =========================
-# FORM INPUT MONITORING
+# FORM INPUT
 # =========================
 st.subheader("➕ Input Hasil Monitoring")
 
@@ -62,7 +77,7 @@ with st.form("form_monitoring", clear_on_submit=True):
         loss = st.number_input("Packet Loss (%)", min_value=0.0, step=0.1)
 
     with col3:
-        status_link = st.selectbox("Status Link", ["UP", "FLAPPING", "DOWN", "INTERMITTENT", "HIGH-LATENCY"])
+        status_link = st.selectbox("Status Link", ["UP", "FLAPPING", "DOWN"])
         pic = st.text_input("PIC Monitoring")
 
     tindakan = st.text_input("Tindakan (jika ada)")
@@ -71,24 +86,30 @@ with st.form("form_monitoring", clear_on_submit=True):
     submit = st.form_submit_button("Simpan Data Monitoring")
 
     if submit:
-        kondisi = get_kondisi(latency, loss, status_link)
+        if site.strip() == "":
+            st.warning("Nama site wajib diisi")
+        else:
+            kondisi = get_kondisi(latency, loss, status_link)
 
-        new_row = {
-            "Waktu Cek": waktu_wib,
-            "Site": site,
-            "Link PTP": link,
-            "Latency (ms)": latency,
-            "Packet Loss (%)": loss,
-            "Status Link": status_link,
-            "Kondisi": kondisi,
-            "Tindakan": tindakan,
-            "PIC": pic,
-            "Info ke NNA": info_nna
-        }
+            WIB = timezone(timedelta(hours=7))
+            waktu_wib = datetime.now(WIB).strftime("%Y-%m-%d %H:%M:%S")
 
-        df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-        save_data(df)
-        st.success(f"Data tersimpan dengan kondisi: {kondisi}")
+            new_row = {
+                "Waktu Cek": waktu_wib,
+                "Site": site,
+                "Link PTP": link,
+                "Latency (ms)": latency,
+                "Packet Loss (%)": loss,
+                "Status Link": status_link,
+                "Kondisi": kondisi,
+                "Tindakan": tindakan,
+                "PIC": pic,
+                "Info ke NNA": info_nna
+            }
+
+            df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+            save_data(df)
+            st.success(f"Data tersimpan dengan kondisi: {kondisi}")
 
 # =========================
 # FILTER
@@ -99,10 +120,10 @@ st.subheader("🔍 Filter Data Monitoring")
 colf1, colf2 = st.columns(2)
 
 with colf1:
-    site_filter = st.multiselect("Filter Site", df["Site"].unique())
+    site_filter = st.multiselect("Filter Site", sorted(df["Site"].dropna().unique()))
 
 with colf2:
-    kondisi_filter = st.multiselect("Filter Kondisi", df["Kondisi"].unique())
+    kondisi_filter = st.multiselect("Filter Kondisi", sorted(df["Kondisi"].dropna().unique()))
 
 filtered_df = df.copy()
 
@@ -113,10 +134,10 @@ if kondisi_filter:
     filtered_df = filtered_df[filtered_df["Kondisi"].isin(kondisi_filter)]
 
 # =========================
-# STATUS SUMMARY
+# RINGKASAN STATUS TERAKHIR
 # =========================
 st.divider()
-st.subheader("📊 Ringkasan Kondisi Terakhir per Site")
+st.subheader("📊 Status Terakhir per Site")
 
 if not df.empty:
     latest_status = df.sort_values("Waktu Cek").groupby("Site").tail(1)
@@ -126,24 +147,28 @@ if not df.empty:
     col2.metric("🟡 Warning", len(latest_status[latest_status["Kondisi"] == "WARNING"]))
     col3.metric("🔴 Major", len(latest_status[latest_status["Kondisi"] == "MAJOR"]))
     col4.metric("⚫ Down", len(latest_status[latest_status["Kondisi"] == "DOWN"]))
+else:
+    st.info("Belum ada data monitoring.")
+
+# =========================
+# WARNA KONDISI
+# =========================
+def highlight_status(val):
+    if val == "NORMAL":
+        return "background-color: #d4edda"
+    if val == "WARNING":
+        return "background-color: #fff3cd"
+    if val == "MAJOR":
+        return "background-color: #f8d7da"
+    if val == "DOWN":
+        return "background-color: #343a40; color: white"
+    return ""
 
 # =========================
 # TABEL DATA
 # =========================
 st.divider()
 st.subheader("📋 Log Monitoring")
-
-def highlight_status(val):
-    color = ""
-    if val == "NORMAL":
-        color = "background-color: #d4edda"
-    elif val == "WARNING":
-        color = "background-color: #fff3cd"
-    elif val == "MAJOR":
-        color = "background-color: #f8d7da"
-    elif val == "DOWN":
-        color = "background-color: #343a40; color: white"
-    return color
 
 if not filtered_df.empty:
     st.dataframe(
@@ -152,10 +177,10 @@ if not filtered_df.empty:
         use_container_width=True
     )
 else:
-    st.info("Belum ada data monitoring.")
+    st.info("Belum ada data monitoring sesuai filter.")
 
 # =========================
-# DOWNLOAD DATA
+# DOWNLOAD
 # =========================
 st.download_button(
     "⬇ Download Data Monitoring (CSV)",
@@ -163,4 +188,3 @@ st.download_button(
     file_name="monitoring_nna.csv",
     mime="text/csv"
 )
-
