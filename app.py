@@ -30,6 +30,8 @@ def load_data():
             return pd.DataFrame(columns=COLUMNS)
 
         df["Waktu Cek"] = pd.to_datetime(df["Waktu Cek"], errors="coerce")
+        df["Latency (ms)"] = pd.to_numeric(df["Latency (ms)"], errors="coerce").fillna(0).astype(int)
+        df["Packet Loss (%)"] = pd.to_numeric(df["Packet Loss (%)"], errors="coerce").fillna(0).astype(int)
         return df
 
     except Exception:
@@ -41,7 +43,7 @@ def save_data(df):
 
 df = load_data()
 
-# Pastikan kolom waktu valid datetime
+# Pastikan kolom waktu valid
 if "Waktu Cek" in df.columns:
     df["Waktu Cek"] = pd.to_datetime(df["Waktu Cek"], errors="coerce")
 
@@ -87,8 +89,8 @@ with st.form("form_monitoring", clear_on_submit=True):
         link = st.text_input("Link PTP")
 
     with col2:
-        latency = st.number_input("Latency (ms)", min_value=0.0, step=1.0)
-        loss = st.number_input("Packet Loss (%)", min_value=0.0, step=0.1)
+        latency = st.number_input("Latency (ms)", min_value=0, step=1, format="%d")
+        loss = st.number_input("Packet Loss (%)", min_value=0, step=1, format="%d")
 
     with col3:
         status_link = st.selectbox("Status Link", ["UP", "FLAPPING", "INTERMITTENT", "DOWN"])
@@ -103,7 +105,7 @@ with st.form("form_monitoring", clear_on_submit=True):
         if site.strip() == "":
             st.warning("Nama site wajib diisi")
         else:
-            kondisi = get_kondisi(latency, loss, status_link)
+            kondisi = get_kondisi(int(latency), int(loss), status_link)
 
             WIB = timezone(timedelta(hours=7))
             waktu_wib = datetime.now(WIB).strftime("%Y-%m-%d %H:%M:%S")
@@ -112,8 +114,8 @@ with st.form("form_monitoring", clear_on_submit=True):
                 "Waktu Cek": waktu_wib,
                 "Site": site,
                 "Link PTP": link,
-                "Latency (ms)": latency,
-                "Packet Loss (%)": loss,
+                "Latency (ms)": int(latency),
+                "Packet Loss (%)": int(loss),
                 "Status Link": status_link,
                 "Kondisi": kondisi,
                 "Tindakan": tindakan,
@@ -148,7 +150,7 @@ if kondisi_filter:
     filtered_df = filtered_df[filtered_df["Kondisi"].isin(kondisi_filter)]
 
 # =========================
-# RINGKASAN STATUS TERAKHIR (ANTI ERROR)
+# RINGKASAN STATUS TERAKHIR
 # =========================
 st.divider()
 st.subheader("📊 Status Terakhir per Site")
