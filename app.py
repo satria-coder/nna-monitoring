@@ -41,17 +41,31 @@ def save_data(df):
 
 df = load_data()
 
+# Pastikan kolom waktu valid datetime
+if "Waktu Cek" in df.columns:
+    df["Waktu Cek"] = pd.to_datetime(df["Waktu Cek"], errors="coerce")
+
 # =========================
 # LOGIC STATUS KONDISI
 # =========================
 def get_kondisi(latency, loss, status_link):
     status_link = status_link.lower()
+
     if status_link == "down":
         return "DOWN"
-    if latency > 20 or loss > 1:
+
+    if status_link == "intermittent":
         return "MAJOR"
+
+    if latency > 20:
+        return "HIGH LATENCY"
+
+    if loss > 1:
+        return "MAJOR"
+
     if latency > 10:
         return "WARNING"
+
     return "NORMAL"
 
 # =========================
@@ -77,7 +91,7 @@ with st.form("form_monitoring", clear_on_submit=True):
         loss = st.number_input("Packet Loss (%)", min_value=0.0, step=0.1)
 
     with col3:
-        status_link = st.selectbox("Status Link", ["UP", "FLAPPING", "DOWN"])
+        status_link = st.selectbox("Status Link", ["UP", "FLAPPING", "INTERMITTENT", "DOWN"])
         pic = st.text_input("PIC Monitoring")
 
     tindakan = st.text_input("Tindakan (jika ada)")
@@ -134,21 +148,24 @@ if kondisi_filter:
     filtered_df = filtered_df[filtered_df["Kondisi"].isin(kondisi_filter)]
 
 # =========================
-# RINGKASAN STATUS TERAKHIR
+# RINGKASAN STATUS TERAKHIR (ANTI ERROR)
 # =========================
 st.divider()
 st.subheader("📊 Status Terakhir per Site")
 
-if not df.empty:
-    latest_status = df.sort_values("Waktu Cek").groupby("Site").tail(1)
+valid_df = df.dropna(subset=["Waktu Cek"])
 
-    col1, col2, col3, col4 = st.columns(4)
+if not valid_df.empty:
+    latest_status = valid_df.sort_values("Waktu Cek").groupby("Site").tail(1)
+
+    col1, col2, col3, col4, col5 = st.columns(5)
     col1.metric("🟢 Normal", len(latest_status[latest_status["Kondisi"] == "NORMAL"]))
     col2.metric("🟡 Warning", len(latest_status[latest_status["Kondisi"] == "WARNING"]))
-    col3.metric("🔴 Major", len(latest_status[latest_status["Kondisi"] == "MAJOR"]))
-    col4.metric("⚫ Down", len(latest_status[latest_status["Kondisi"] == "DOWN"]))
+    col3.metric("🟠 High Latency", len(latest_status[latest_status["Kondisi"] == "HIGH LATENCY"]))
+    col4.metric("🔴 Major", len(latest_status[latest_status["Kondisi"] == "MAJOR"]))
+    col5.metric("⚫ Down", len(latest_status[latest_status["Kondisi"] == "DOWN"]))
 else:
-    st.info("Belum ada data monitoring.")
+    st.info("Belum ada data monitoring valid.")
 
 # =========================
 # WARNA KONDISI
@@ -158,6 +175,8 @@ def highlight_status(val):
         return "background-color: #d4edda"
     if val == "WARNING":
         return "background-color: #fff3cd"
+    if val == "HIGH LATENCY":
+        return "background-color: #ffe5b4"
     if val == "MAJOR":
         return "background-color: #f8d7da"
     if val == "DOWN":
