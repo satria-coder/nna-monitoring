@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+WIB = timezone(timedelta(hours=7))
+waktu_wib = datetime.now(WIB).strftime("%Y-%m-%d %H:%M:%S")
 import os
 
 st.set_page_config(page_title="NNA Network Monitoring", layout="wide")
@@ -72,7 +74,7 @@ with st.form("form_monitoring", clear_on_submit=True):
         kondisi = get_kondisi(latency, loss, status_link)
 
         new_row = {
-            "Waktu Cek": datetime.now(),
+            "Waktu Cek": waktu_wib,
             "Site": site,
             "Link PTP": link,
             "Latency (ms)": latency,
@@ -161,3 +163,4 @@ st.download_button(
     file_name="monitoring_nna.csv",
     mime="text/csv"
 )
+
